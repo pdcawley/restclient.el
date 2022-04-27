@@ -56,10 +56,10 @@
   :group 'restclient
   :type 'boolean)
 
-(defcustom restclient-content-type-modes '(("text/xml" . xml-mode)
+(defcustom restclient-content-type-modes `(("text/xml" . xml-mode)
                                            ("text/plain" . text-mode)
                                            ("application/xml" . xml-mode)
-                                           ("application/json" . js-mode)
+                                           ("application/json" . ,(or (require 'json-mode nil t) 'js-mode))
                                            ("image/png" . image-mode)
                                            ("image/jpeg" . image-mode)
                                            ("image/jpg" . image-mode)
@@ -314,7 +314,7 @@
               (fundamental-mode)
               (insert-image (create-image img nil t))))
 
-           ((eq guessed-mode 'js-mode)
+           ((memq guessed-mode '(json-mode js2-mode js3-mode javascript-mode js-mode))
             (let ((json-special-chars (remq (assoc ?/ json-special-chars) json-special-chars))
 		  ;; Emacs 27 json.el uses `replace-buffer-contents' for
 		  ;; pretty-printing which is great because it keeps point and
