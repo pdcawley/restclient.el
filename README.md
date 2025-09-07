@@ -21,6 +21,7 @@ and supports a few additional keypresses:
 - `C-c C-c`: runs the query under the cursor, tries to pretty-print the response (if possible)
 - `C-c C-r`: same, but doesn't do anything with the response, just shows the buffer
 - `C-c C-v`: same as `C-c C-c`, but doesn't switch focus to other window
+- `C-c C-b`: same as `C-c C-c`, but doesn't show response buffer
 - `C-c C-p`: jump to the previous query
 - `C-c C-n`: jump to the next query
 - `C-c C-.`: mark the query under the cursor
@@ -29,7 +30,7 @@ and supports a few additional keypresses:
 - `C-c n n`: narrow to region of current request (including headers)
 - `TAB`: hide/show current request body, only if 
 - `C-c C-a`: show all collapsed regions
-- `C-c C-i`: show information on resclient variables at point
+- `C-c C-i`: show information on restclient variables at point
 
 The last two functions are implemented as `restclient-outline-mode` minor mode, which is activated by default via hook for major mode. Remove this hook using `(remove-hook 'restclient-mode-hook 'restclient-outline-mode)` if you don't wish to have this behaviour, or it clashes with any other binding for `TAB` like autocomplete. 
 
@@ -181,7 +182,7 @@ Restclient now allows to specify file path to use as a body, like this:
 
 # Customization
 
-There are several variables available to customize `restclient` to your liking. Also, all font lock faces are now customizable in `resclient-faces` group too.
+There are several variables available to customize `restclient` to your liking. Also, all font lock faces are now customizable in `restclient-faces` group too.
 
 ### restclient-log-request
 
@@ -217,6 +218,14 @@ Name for response buffer to be used when `restclient-same-buffer-response` is tr
 __Default: nil__
 
 Inhibit restclient from sending cookies implicitly.
+
+### restclient-response-size-threshold
+
+__Default: 100000__
+
+Size of the response buffer restclient can display without huge performance dropdown.
+If response buffer will be more than that, only bare major mode will be used to display it.
+Set to `nil` to disable threshold completely.
 
 # Known issues
 

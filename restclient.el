@@ -1,4 +1,4 @@
-;;; restclient.el --- An interactive HTTP client for Emacs
+;;; restclient.el --- An interactive HTTP client for Emacs  -*- lexical-binding: t; -*-
 ;;
 ;; Public domain.
 
@@ -45,6 +45,14 @@
   "Name for response buffer."
   :group 'restclient
   :type 'string)
+
+(defcustom restclient-response-size-threshold 100000
+  "Size of the response restclient can display without performance impact."
+  :group 'restclient
+  :type 'integer)
+
+(defvar restclient-threshold-multiplier 10
+  "In how many times size-threshold should be exceed to use fundamental mode.")
 
 (defcustom restclient-info-buffer-name "*Restclient Info*"
   "Name for info buffer."
@@ -295,7 +303,23 @@
         (when guessed-mode
           (delete-region start (point))
           (unless (eq guessed-mode 'image-mode)
-            (apply guessed-mode '())
+            (cond ((and restclient-response-size-threshold
+                        (> (buffer-size) (* restclient-response-size-threshold
+                                            restclient-threshold-multiplier)))
+                   (fundamental-mode)
+                   (setq comment-start (let ((guessed-mode guessed-mode))
+                                         (with-temp-buffer
+                                           (apply  guessed-mode '())
+                                           comment-start)))
+                   (message
+                    "Response is too huge, using fundamental-mode to display it!"))
+                  ((and restclient-response-size-threshold
+                        (> (buffer-size) restclient-response-size-threshold))
+                   (delay-mode-hooks (apply guessed-mode '()))
+                   (message
+                    "Response is too big, using bare %s to display it!" guessed-mode))
+                  (t
+                   (apply guessed-mode '())))
             (if (fboundp 'font-lock-flush)
                 (font-lock-flush)
               (with-no-warnings
@@ -339,7 +363,7 @@
     (while (re-search-forward "\\\\[Uu]\\([0-9a-fA-F]\\{4\\}\\)" nil t)
       (replace-match (char-to-string (decode-char 'ucs (string-to-number (match-string 1) 16))) t nil))))
 
-(defun restclient-http-handle-response (status method url bufname raw stay-in-window)
+(defun restclient-http-handle-response (status method url bufname raw stay-in-window suppress-response-buffer)
   "Switch to the buffer returned by `url-retreive'.
 The buffer contains the raw HTTP response sent by the server."
   (setq restclient-within-call nil)
@@ -357,9 +381,10 @@ The buffer contains the raw HTTP response sent by the server."
         (buffer-enable-undo)
 	(restclient-response-mode)
         (run-hooks 'restclient-response-loaded-hook)
-        (if stay-in-window
-            (display-buffer (current-buffer) t)
-          (switch-to-buffer-other-window (current-buffer)))))))
+        (unless suppress-response-buffer
+          (if stay-in-window
+              (display-buffer (current-buffer) t)
+            (switch-to-buffer-other-window (current-buffer))))))))
 
 (defun restclient-decode-response (raw-http-response-buffer target-buffer-name same-name)
   "Decode the HTTP response using the charset (encoding) specified in the Content-Type header. If no charset is specified, default to UTF-8."
@@ -465,6 +490,17 @@ The buffer contains the raw HTTP response sent by the server."
             start (match-end 0)))
     headers))
 
+(defun restclient-get-response-headers ()
+  "Returns alist of current response headers. Works *only* with with
+hook called from `restclient-http-send-current-raw', usually
+bound to C-c C-r."
+  (let ((start (point-min))
+         (headers-end (+ 1 (string-match "\n\n" (buffer-substring-no-properties (point-min) (point-max))))))
+         (restclient-parse-headers (buffer-substring-no-properties start headers-end))))
+
+(defun restclient-set-var-from-header (var header)
+  (restclient-set-var var (cdr (assoc header (restclient-get-response-headers)))))
+
 (defun restclient-read-file (path)
   (with-temp-buffer
     (insert-file-contents path)
@@ -504,7 +540,7 @@ The buffer contains the raw HTTP response sent by the server."
     (restclient-replace-all-in-string vars-at-point (cdr (assoc var-name vars-at-point)))))
 
 (defmacro restclient-get-var (var-name)
-  (lexical-let ((buf-name (buffer-name (current-buffer)))
+  (let ((buf-name (buffer-name (current-buffer)))
 		(buf-point (point)))
     `(restclient-get-var-at-point ,var-name ,buf-name ,buf-point)))
 
@@ -569,7 +605,7 @@ The buffer contains the raw HTTP response sent by the server."
 
 (defun restclient-elisp-result-function (args offset)
   (goto-char offset)
-  (lexical-let ((form (macroexpand-all (read (current-buffer)))))
+  (let ((form (macroexpand-all (read (current-buffer)))))
     (lambda ()
       (eval form))))
 
@@ -581,12 +617,12 @@ The buffer contains the raw HTTP response sent by the server."
   eg. -> on-response (message \"my hook called\")" )
 
 ;;;###autoload
-(defun restclient-http-send-current (&optional raw stay-in-window)
+(defun restclient-http-send-current (&optional raw stay-in-window suppress-response-buffer)
   "Sends current request.
 Optional argument RAW don't reformat response if t.
 Optional argument STAY-IN-WINDOW do not move focus to response buffer if t."
   (interactive)
-  (restclient-http-parse-current-and-do 'restclient-http-do raw stay-in-window))
+  (restclient-http-parse-current-and-do 'restclient-http-do raw stay-in-window suppress-response-buffer))
 
 ;;;###autoload
 (defun restclient-http-send-current-raw ()
@@ -599,6 +635,12 @@ Optional argument STAY-IN-WINDOW do not move focus to response buffer if t."
   "Send current request and keep focus in request window."
   (interactive)
   (restclient-http-send-current nil t))
+
+;;;###autoload
+(defun restclient-http-send-current-suppress-response-buffer ()
+  "Send current request but don't show response buffer."
+  (interactive)
+  (restclient-http-send-current nil nil t))
 
 (defun restclient-jump-next ()
   "Jump to next request in buffer."
@@ -744,6 +786,7 @@ Optional argument STAY-IN-WINDOW do not move focus to response buffer if t."
     (define-key map (kbd "C-c C-c") 'restclient-http-send-current)
     (define-key map (kbd "C-c C-r") 'restclient-http-send-current-raw)
     (define-key map (kbd "C-c C-v") 'restclient-http-send-current-stay-in-window)
+    (define-key map (kbd "C-c C-b") 'restclient-http-send-current-suppress-response-buffer)
     (define-key map (kbd "C-c C-n") 'restclient-jump-next)
     (define-key map (kbd "C-c C-p") 'restclient-jump-prev)
     (define-key map (kbd "C-c C-.") 'restclient-mark-current)
